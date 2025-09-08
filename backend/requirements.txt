@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+requests
+pydantic
+PyYAML
+langchain
+langchain-ollama

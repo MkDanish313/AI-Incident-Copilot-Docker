@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    restart: unless-stopped
+
+  # one-shot helper that pulls model after ollama is up
+  ollama-pull:
+    image: curlimages/curl:latest
+    depends_on:
+      - ollama
+    entrypoint: >
+      sh -c "
+      until curl -s http://ollama:11434/api/tags >/dev/null; do echo waiting for ollama; sleep 2; done;
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama2:7b\"}' && echo pulled
+      "
+    restart: "no"
+
+  backend:
+    build: ./backend
+    container_name: incident-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_API=http://ollama:11434
+      - DB_PATH=/data/db/incident.db
+      - CATEGORIES_FILE=/app/incident_categories.yml
+    volumes:
+      - ./data:/data
+    depends_on:
+      - ollama
+      - ollama-pull
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: incident-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
