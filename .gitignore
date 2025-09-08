@@ -1,0 +1,16 @@
+# Terraform state files (bahut sensitive hote hain)
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# AWS SSH key files
+*.pem
+
+# Terraform variable files (credentials ho sakte hain)
+terraform.tfvars
+*.auto.tfvars
+
+# Logs
+*.log
+
