@@ -9,16 +9,25 @@ services:
     volumes:
       - ./data/ollama:/root/.ollama
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   # one-shot helper that pulls model after ollama is up
   ollama-pull:
     image: curlimages/curl:latest
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     entrypoint: >
       sh -c "
-      until curl -s http://ollama:11434/api/tags >/dev/null; do echo waiting for ollama; sleep 2; done;
-      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama2:7b\"}' && echo pulled
+      echo '⏳ Waiting for Ollama...';
+      until curl -s http://ollama:11434/api/tags >/dev/null; do sleep 2; done;
+      echo '🚀 Pulling llama2:7b model...';
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama2:7b\"}';
+      echo '✅ Model pulled successfully';
       "
     restart: "no"
 
@@ -34,8 +43,10 @@ services:
     volumes:
       - ./data:/data
     depends_on:
-      - ollama
-      - ollama-pull
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   frontend:
@@ -46,5 +57,6 @@ services:
     environment:
       - API_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     restart: unless-stopped

@@ -88,6 +88,12 @@ resource "aws_instance" "this" {
               mkdir -p data/db data/ollama
               docker-compose up -d --build
               EOF
+  
+   # Root EBS volume ka size set karne ke liye
+  root_block_device {
+    volume_size = 25      # Root volume size 25 GB
+    volume_type = "gp3"   # gp2 bhi use kar sakte ho
+  }
 
   tags = {
     Name = "${var.project_name}-ec2"
