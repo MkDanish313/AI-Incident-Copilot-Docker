@@ -5,6 +5,7 @@ import subprocess
 import os
 from typing import List, Dict
 from datetime import datetime
+import yaml
 
 app = FastAPI()
 
@@ -29,10 +30,39 @@ def save_incident(category, agent, incident, response):
     conn.commit()
     conn.close()
 
+def load_category_prompt(category: str) -> str:
+    """Load category-specific prompt from YAML, if exists"""
+    try:
+        with open(CATEGORIES_FILE, "r") as f:
+            data = yaml.safe_load(f)
+        return data.get("categories", {}).get(category, {}).get("prompt", "")
+    except Exception:
+        return ""
+
 @app.post("/incident")
 def handle_incident(req: IncidentRequest):
+    # Load category-specific context (optional)
+    category_context = load_category_prompt(req.category)
+
+    # Build improved prompt
+    prompt = f"""
+You are an AI Incident Copilot.
+Category: {req.category}
+Agent: {req.agent}
+Incident: {req.incident}
+
+Additional context:
+{category_context}
+
+Your task:
+1. Give top 3 **investigation steps**.
+2. Provide **exact CLI commands** that should be run.
+3. Suggest **fixes or recommended actions** (ready to apply).
+4. Be concise and practical (use bullet points).
+"""
+
     # Call Ollama model
-    command = f'ollama run llama2:7b "{req.incident}"'
+    command = f'ollama run llama2:7b "{prompt}"'
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
 
     if result.returncode != 0:

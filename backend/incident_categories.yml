@@ -1,22 +1,36 @@
 categories:
-  aws_outage:
-    prompt: |
-      You are an Incident Response Assistant.
-      Category: AWS outage.
-      Incident: {incident}
-      Give top 5 steps to triage with AWS CLI examples if useful.
   kubernetes_crash:
     prompt: |
-      You are a Kubernetes SRE.
-      Incident: {incident}
-      Return 5 steps with concrete kubectl commands.
+      This issue is related to Kubernetes pods or workloads failing.
+      - Always check pod logs, events, and resource limits.
+      - Verify ConfigMaps, Secrets, and Node conditions.
+      - Use `kubectl describe` and `kubectl logs` as primary investigation tools.
+
+  aws_outage:
+    prompt: |
+      This issue involves AWS service outages or failures.
+      - Check CloudWatch metrics, service health dashboard, and alarms.
+      - Validate IAM permissions and network ACLs/security groups.
+      - Common tools: `aws cloudwatch get-metric-data`, `aws ec2 describe-instances`.
+
   database_down:
     prompt: |
-      You are a DB reliability engineer.
-      Incident: {incident}
-      Provide 5 checks for availability, connections, locks, and recovery.
-  linux_high_cpu:
+      This issue relates to database availability or performance.
+      - First check service status and DB logs.
+      - Monitor active connections, locks, and slow queries.
+      - Commands: `systemctl status mysql`, `psql -c "SELECT * FROM pg_stat_activity;"`.
+
+  network_issue:
     prompt: |
-      You are a Linux performance engineer.
-      Incident: {incident}
-      Provide 5 checks with sample commands (top, ps, pidstat, perf).
+      This issue is related to networking problems.
+      - Start with ping and traceroute.
+      - Verify DNS resolution, routing tables, and firewall rules.
+      - Commands: `ping`, `traceroute`, `nslookup`, `iptables -L`.
+
+  linux_issue:
+    prompt: |
+      This issue is related to Linux server/system health.
+      - Check CPU, memory, disk, and process usage.
+      - Look at system logs: `/var/log/syslog`, `/var/log/messages`, `dmesg`.
+      - Useful commands: `top`, `htop`, `free -m`, `df -h`, `journalctl -xe`.
+      - Verify running services with `systemctl status <service>`.
