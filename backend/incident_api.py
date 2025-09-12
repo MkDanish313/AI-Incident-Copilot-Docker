@@ -39,12 +39,21 @@ def load_category_prompt(category: str) -> str:
     except Exception:
         return ""
 
+def get_agent_connect_command(agent: str) -> str:
+    """Return agent installation/connect command"""
+    agent_scripts = {
+        "linux": "curl -sSL http://your-api-server/agents/linux_agent/install.sh | bash",
+        "aws": "curl -sSL http://your-api-server/agents/aws_agent/install.sh | bash",
+        "db": "curl -sSL http://your-api-server/agents/db_agent/install.sh | bash",
+    }
+    return agent_scripts.get(agent, "No connect script available.")
+
 @app.post("/incident")
 def handle_incident(req: IncidentRequest):
     # Load category-specific context (optional)
     category_context = load_category_prompt(req.category)
 
-    # Build improved prompt
+    # Build safe prompt (Suggestion-only mode)
     prompt = f"""
 You are an AI Incident Copilot.
 Category: {req.category}
@@ -55,9 +64,9 @@ Additional context:
 {category_context}
 
 Your task:
-1. Give top 3 **investigation steps**.
-2. Provide **exact CLI commands** that should be run.
-3. Suggest **fixes or recommended actions** (ready to apply).
+1. Suggest top 3 **investigation steps**.
+2. Provide **example CLI commands** (do NOT execute, only suggest).
+3. Suggest **fixes or recommended actions**.
 4. Be concise and practical (use bullet points).
 """
 
@@ -71,7 +80,10 @@ Your task:
     response_text = result.stdout.strip()
     save_incident(req.category, req.agent, req.incident, response_text)
 
-    return {"response": response_text}
+    # Also return agent connect command
+    agent_command = get_agent_connect_command(req.agent)
+
+    return {"response": response_text, "agent_connect": agent_command}
 
 @app.get("/incidents")
 def get_incidents(limit: int = 20) -> List[Dict]:

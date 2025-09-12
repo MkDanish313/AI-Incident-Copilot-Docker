@@ -13,7 +13,7 @@ st.title("🤖 AI Incident Copilot")
 st.sidebar.header("Settings")
 
 # Agent selection
-agent = st.sidebar.selectbox("Select Agent", ["linux_agent", "aws_agent", "db_agent"])
+agent = st.sidebar.selectbox("Select Agent", ["linux", "aws", "db"])
 
 # Fetch categories from API (fallback to defaults)
 try:
@@ -21,9 +21,9 @@ try:
     if cat_resp.status_code == 200:
         categories = cat_resp.json().get("categories", [])
     else:
-        categories = ["aws_outage", "kubernetes_crash", "database_down", "network_issue"]
+        categories = ["aws_outage", "kubernetes_crash", "database_down", "network_issue", "linux_issue"]
 except Exception:
-    categories = ["aws_outage", "kubernetes_crash", "database_down", "network_issue"]
+    categories = ["aws_outage", "kubernetes_crash", "database_down", "network_issue", "linux_issue"]
 
 category = st.sidebar.selectbox("Select Category", categories)
 
@@ -56,29 +56,39 @@ with tab1:
             with st.spinner("AI is analyzing..."):
 
                 try:
-                    with requests.post(
+                    resp = requests.post(
                         f"{API_URL}/incident",
                         json={"agent": agent, "category": category, "incident": incident},
-                        stream=True,
                         timeout=300,
-                    ) as resp:
+                    )
 
-                        if resp.status_code != 200:
-                            st.error(f"Error: {resp.text}")
-                        else:
-                            st.success("AI Response:")
-                            response_box = st.empty()
-                            full_text = ""
+                    if resp.status_code != 200:
+                        st.error(f"Error: {resp.text}")
+                    else:
+                        data = resp.json()
+                        response_text = data.get("response", "")
+                        agent_cmd = data.get("agent_connect", "")
 
-                            # Stream response line by line
-                            for chunk in resp.iter_lines():
-                                if chunk:
-                                    try:
-                                        data = chunk.decode("utf-8")
-                                        full_text += data + " "
-                                        response_box.markdown(full_text)
-                                    except Exception:
-                                        pass
+                        # AI Response
+                        st.success("✅ AI Response:")
+                        st.markdown(response_text)
+
+                        # Agent Connect Command
+                        if agent_cmd:
+                            st.info("🔗 Agent Connect Command:")
+                            st.code(agent_cmd, language="bash")
+
+                            # Inject JS Copy Button
+                            copy_js = f"""
+                            <script>
+                            function copyText() {{
+                                navigator.clipboard.writeText("{agent_cmd}");
+                                alert("Copied to clipboard!");
+                            }}
+                            </script>
+                            <button onclick="copyText()">📋 Copy Command</button>
+                            """
+                            st.markdown(copy_js, unsafe_allow_html=True)
 
                 except Exception as e:
                     st.error(f"Request failed: {e}")
