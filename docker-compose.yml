@@ -40,6 +40,7 @@ services:
       - OLLAMA_API=http://ollama:11434
       - DB_PATH=/data/db/incident.db
       - CATEGORIES_FILE=/app/incident_categories.yml
+      - PUBLIC_API_URL=http://<EC2_PUBLIC_IP>:8000
     volumes:
       - ./data:/data
     depends_on:

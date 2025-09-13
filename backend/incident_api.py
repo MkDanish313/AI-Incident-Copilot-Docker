@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import sqlite3
 import os
@@ -6,17 +8,27 @@ import requests
 from typing import List, Dict
 from datetime import datetime
 import yaml
+import json
 
 app = FastAPI()
 
 DB_PATH = os.getenv("DB_PATH", "/data/db/incident.db")
 CATEGORIES_FILE = os.getenv("CATEGORIES_FILE", "/app/incident_categories.yml")
 OLLAMA_API = os.getenv("OLLAMA_API", "http://ollama:11434")
+PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://localhost:8000")
 
+
+# ---------------------------
+# Mount agents/ directory so scripts are served
+# ---------------------------
+if os.path.isdir("agents"):
+    app.mount("/agents", StaticFiles(directory="agents"), name="agents")
+    
 class IncidentRequest(BaseModel):
     category: str
     agent: str
     incident: str
+
 
 # ---------------------------
 # DB Utility
@@ -25,7 +37,8 @@ def save_incident(category, agent, incident, response):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "CREATE TABLE IF NOT EXISTS incidents (id INTEGER PRIMARY KEY, timestamp TEXT, category TEXT, agent TEXT, incident TEXT, response TEXT)"
+        "CREATE TABLE IF NOT EXISTS incidents "
+        "(id INTEGER PRIMARY KEY, timestamp TEXT, category TEXT, agent TEXT, incident TEXT, response TEXT)"
     )
     cursor.execute(
         "INSERT INTO incidents (timestamp, category, agent, incident, response) VALUES (?, ?, ?, ?, ?)",
@@ -34,20 +47,6 @@ def save_incident(category, agent, incident, response):
     conn.commit()
     conn.close()
 
-def get_incidents(limit: int = 20):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "CREATE TABLE IF NOT EXISTS incidents (id INTEGER PRIMARY KEY, timestamp TEXT, category TEXT, agent TEXT, incident TEXT, response TEXT)"
-    )
-    cursor.execute("SELECT timestamp, category, agent, incident, response FROM incidents ORDER BY id DESC LIMIT ?", (limit,))
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [
-        {"timestamp": r[0], "category": r[1], "agent": r[2], "incident": r[3], "response": r[4]}
-        for r in rows
-    ]
 
 # ---------------------------
 # Category Utility
@@ -60,6 +59,7 @@ def load_category_prompt(category: str) -> str:
     except Exception:
         return ""
 
+
 @app.get("/categories")
 def get_categories():
     try:
@@ -69,14 +69,16 @@ def get_categories():
     except Exception:
         return {"categories": []}
 
+
 # ---------------------------
 # Agent Utility
 # ---------------------------
 def get_agent_connect_command(agent: str) -> str:
+    base_url = PUBLIC_API_URL.rstrip("/")
     mapping = {
-        "linux_agent": "curl -sSL https://<YOUR_API>/agents/linux_agent/install.sh | bash",
-        "aws_agent": "curl -sSL https://<YOUR_API>/agents/aws_agent/install.sh | bash",
-        "db_agent": "curl -sSL https://<YOUR_API>/agents/db_agent/install.sh | bash",
+        "linux_agent": f"curl -sSL {base_url}/agents/linux_agent/install.sh | bash",
+        "aws_agent": f"curl -sSL {base_url}/agents/aws_agent/install.sh | bash",
+        "db_agent": f"curl -sSL {base_url}/agents/db_agent/install.sh | bash",
     }
     return mapping.get(agent.lower(), "No agent install script available. See docs.")
 
@@ -85,12 +87,13 @@ def agent_connect(agent: str):
     return {"agent": agent, "command": get_agent_connect_command(agent)}
 
 # ---------------------------
-# Incident API
+# Incident API (Streaming with Sections)
 # ---------------------------
 @app.post("/incident")
 def handle_incident(req: IncidentRequest):
     category_context = load_category_prompt(req.category)
 
+    # Ask model for JSON structured output
     prompt = f"""
 You are an AI Incident Copilot.
 Category: {req.category}
@@ -101,35 +104,64 @@ Additional context:
 {category_context}
 
 Your task:
-1. Give top 3 **investigation steps**.
-2. Provide **exact CLI commands** that should be run.
-3. Suggest **fixes or recommended actions** (ready to apply).
-4. Be concise and practical (use bullet points).
+Return a JSON with exactly these fields:
+- investigation (list of top 3 steps)
+- commands (list of CLI commands)
+- fixes (list of recommended fixes)
+
+Be concise, practical, and realistic.
 """
 
-    try:
-        resp = requests.post(
-            f"{OLLAMA_API}/api/generate",
-            json={"model": "llama2:7b", "prompt": prompt, "stream": False},
-            timeout=300,
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
+    def stream_response():
+        full_response = ""
+        try:
+            with requests.post(
+                f"{OLLAMA_API}/api/generate",
+                json={"model": "llama2:7b", "prompt": prompt, "stream": True},
+                stream=True,
+                timeout=600,
+            ) as r:
+                for line in r.iter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line.decode("utf-8"))
+                            chunk = data.get("response", "")
+                            full_response += chunk
+                            yield chunk
+                        except Exception:
+                            pass
+        except Exception as e:
+            yield f"[Error contacting Ollama: {str(e)}]"
 
-        response_text = resp.json().get("response", "").strip()
+        # Save once complete
+        if full_response.strip():
+            save_incident(req.category, req.agent, req.incident, full_response.strip())
 
-        save_incident(req.category, req.agent, req.incident, response_text)
-        return {"response": response_text}
+    return StreamingResponse(stream_response(), media_type="text/plain")
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
 
 # ---------------------------
 # History API
 # ---------------------------
 @app.get("/incidents")
 def incidents(limit: int = 20) -> List[Dict]:
-    return get_incidents(limit)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS incidents "
+        "(id INTEGER PRIMARY KEY, timestamp TEXT, category TEXT, agent TEXT, incident TEXT, response TEXT)"
+    )
+    cursor.execute(
+        "SELECT timestamp, category, agent, incident, response FROM incidents ORDER BY id DESC LIMIT ?",
+        (limit,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {"timestamp": r[0], "category": r[1], "agent": r[2], "incident": r[3], "response": r[4]}
+        for r in rows
+    ]
+
 
 # ---------------------------
 # Healthcheck
