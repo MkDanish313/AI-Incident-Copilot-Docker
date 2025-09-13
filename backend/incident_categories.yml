@@ -1,36 +1,65 @@
 categories:
-  kubernetes_crash:
-    prompt: |
-      This issue is related to Kubernetes pods or workloads failing.
-      - Always check pod logs, events, and resource limits.
-      - Verify ConfigMaps, Secrets, and Node conditions.
-      - Use `kubectl describe` and `kubectl logs` as primary investigation tools.
-
   aws_outage:
     prompt: |
-      This issue involves AWS service outages or failures.
-      - Check CloudWatch metrics, service health dashboard, and alarms.
-      - Validate IAM permissions and network ACLs/security groups.
-      - Common tools: `aws cloudwatch get-metric-data`, `aws ec2 describe-instances`.
+      You are analyzing an AWS outage incident.
+      Focus on:
+      - Checking affected services (EC2, RDS, S3, IAM).
+      - Validating region-specific issues.
+      - Steps to mitigate downtime.
+
+  kubernetes_crash:
+    prompt: |
+      You are analyzing a Kubernetes crash incident.
+      Focus on:
+      - Pods stuck in CrashLoopBackOff.
+      - Checking ConfigMaps/Secrets.
+      - Node resource usage and kubelet logs.
 
   database_down:
     prompt: |
-      This issue relates to database availability or performance.
-      - First check service status and DB logs.
-      - Monitor active connections, locks, and slow queries.
-      - Commands: `systemctl status mysql`, `psql -c "SELECT * FROM pg_stat_activity;"`.
+      You are analyzing a Database outage.
+      Focus on:
+      - Check DB engine logs (MySQL/Postgres/Mongo).
+      - Validate connectivity and authentication.
+      - Recovery or failover actions.
 
   network_issue:
     prompt: |
-      This issue is related to networking problems.
-      - Start with ping and traceroute.
-      - Verify DNS resolution, routing tables, and firewall rules.
-      - Commands: `ping`, `traceroute`, `nslookup`, `iptables -L`.
+      You are analyzing a Network connectivity issue.
+      Focus on:
+      - Run basic connectivity checks (ping, traceroute, nslookup).
+      - Inspect firewall/iptables and DNS resolution.
+      - Verify cloud/VPC-level security groups.
 
   linux_issue:
     prompt: |
-      This issue is related to Linux server/system health.
-      - Check CPU, memory, disk, and process usage.
-      - Look at system logs: `/var/log/syslog`, `/var/log/messages`, `dmesg`.
-      - Useful commands: `top`, `htop`, `free -m`, `df -h`, `journalctl -xe`.
-      - Verify running services with `systemctl status <service>`.
+      You are analyzing a Linux system issue.
+      Focus on:
+      - Check system logs (/var/log, dmesg, journalctl).
+      - Validate CPU, memory, disk usage.
+      - Investigate running processes and services.
+
+  security_alert:
+    prompt: |
+      You are analyzing a Security alert.
+      Focus on:
+      - Detect suspicious processes or users.
+      - Check for unusual network activity.
+      - Recommend containment and patching steps.
+
+  ci_cd_pipeline_failure:
+    prompt: |
+      You are analyzing a CI/CD pipeline failure.
+      Focus on:
+      - Check Jenkins/GitHub Actions logs.
+      - Validate build dependencies.
+      - Rollback or retry deployment strategies.
+
+  custom_example:
+    prompt: |
+      This is a placeholder for future categories.
+      Admins can extend this YAML file to add new categories like:
+      - Cloud cost spike
+      - API latency issues
+      - Service configuration drift
+      - Compliance violation
