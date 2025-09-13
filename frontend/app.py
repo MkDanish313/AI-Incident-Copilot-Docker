@@ -10,9 +10,8 @@ st.title("🤖 AI Incident Copilot")
 # ---------------------------
 # Sidebar (Settings + Health)
 # ---------------------------
-st.sidebar.header("Settings")
+st.sidebar.header("⚙️ Settings")
 
-# Agent selection
 agent = st.sidebar.selectbox("Select Agent", ["linux", "aws", "db"])
 
 # Fetch categories from API (fallback to defaults)
@@ -47,48 +46,69 @@ tab1, tab2 = st.tabs(["💬 Assistant", "📜 History"])
 with tab1:
     st.subheader("💬 Ask the AI Copilot")
 
-    incident = st.text_area("Describe the incident:", height=120)
+    incident = st.text_area("Describe the incident (paste logs, metrics, errors):", height=150)
 
     if st.button("Get AI Response"):
         if not incident.strip():
             st.warning("⚠️ Please enter an incident description.")
         else:
             with st.spinner("AI is analyzing..."):
-
                 try:
                     resp = requests.post(
                         f"{API_URL}/incident",
                         json={"agent": agent, "category": category, "incident": incident},
                         timeout=300,
                     )
-
                     if resp.status_code != 200:
                         st.error(f"Error: {resp.text}")
                     else:
                         data = resp.json()
-                        response_text = data.get("response", "")
-                        agent_cmd = data.get("agent_connect", "")
+                        result = data.get("response_json", {})
+                        raw_text = data.get("response_text", "")
+                        agent_connect = data.get("agent_connect", "")
 
-                        # AI Response
-                        st.success("✅ AI Response:")
-                        st.markdown(response_text)
+                        st.success("✅ AI Response (Structured)")
 
-                        # Agent Connect Command
-                        if agent_cmd:
-                            st.info("🔗 Agent Connect Command:")
-                            st.code(agent_cmd, language="bash")
+                        # Investigation Steps
+                        if result.get("investigation_steps"):
+                            st.markdown("### 🔍 Investigation Steps")
+                            for step in result["investigation_steps"]:
+                                st.write(f"- {step}")
 
-                            # Inject JS Copy Button
-                            copy_js = f"""
-                            <script>
-                            function copyText() {{
-                                navigator.clipboard.writeText("{agent_cmd}");
-                                alert("Copied to clipboard!");
-                            }}
-                            </script>
-                            <button onclick="copyText()">📋 Copy Command</button>
-                            """
-                            st.markdown(copy_js, unsafe_allow_html=True)
+                        # Commands
+                        if result.get("commands"):
+                            st.markdown("### 💻 Suggested Commands")
+                            for cmd in result["commands"]:
+                                st.code(cmd, language="bash")
+
+                        # Fixes
+                        if result.get("fixes"):
+                            st.markdown("### 🛠️ Recommended Fixes")
+                            for fix in result["fixes"]:
+                                st.write(f"- {fix}")
+
+                        # Severity
+                        st.markdown("### 🚨 Severity")
+                        st.write(result.get("severity", "unknown").capitalize())
+
+                        # Recommended Action
+                        st.markdown("### 🎯 Recommended Action")
+                        st.write(result.get("recommended_action", "investigate"))
+
+                        # Notes (fallback)
+                        if result.get("notes"):
+                            st.markdown("### 📝 Notes")
+                            st.write(result["notes"])
+
+                        # Agent Connect
+                        if agent_connect:
+                            st.markdown("### 🔗 Agent Connect Command")
+                            st.code(agent_connect, language="bash")
+
+                        # Raw Text fallback
+                        if not result or not any(result.values()):
+                            st.warning("⚠️ Structured output missing. Showing raw model response:")
+                            st.text(raw_text)
 
                 except Exception as e:
                     st.error(f"Request failed: {e}")
@@ -102,14 +122,34 @@ with tab2:
     try:
         resp = requests.get(f"{API_URL}/incidents?limit=20", timeout=10)
         if resp.status_code == 200:
-            incidents = resp.json()
+            incidents = resp.json().get("items", [])
             if not incidents:
                 st.info("No past incidents logged yet.")
             else:
                 for inc in incidents:
                     with st.expander(f"{inc['timestamp']} | {inc['category']} | {inc['agent']}"):
                         st.write(f"**Incident:** {inc['incident']}")
-                        st.write(f"**Response:** {inc['response']}")
+
+                        parsed = inc.get("response_json")
+                        if parsed:
+                            st.markdown("**Investigation Steps:**")
+                            for step in parsed.get("investigation_steps", []):
+                                st.write(f"- {step}")
+
+                            st.markdown("**Commands:**")
+                            for cmd in parsed.get("commands", []):
+                                st.code(cmd, language="bash")
+
+                            st.markdown("**Fixes:**")
+                            for fix in parsed.get("fixes", []):
+                                st.write(f"- {fix}")
+
+                            st.write(f"**Severity:** {parsed.get('severity')}")
+                            st.write(f"**Recommended Action:** {parsed.get('recommended_action')}")
+                            st.write(f"**Notes:** {parsed.get('notes', '')}")
+
+                        else:
+                            st.text(inc.get("response_text", ""))
         else:
             st.error(f"Failed to fetch history: {resp.text}")
     except Exception as e:
