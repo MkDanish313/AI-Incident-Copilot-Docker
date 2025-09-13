@@ -1,46 +1,58 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import sqlite3
-import subprocess
 import os
+import requests
 from typing import List, Dict
 from datetime import datetime
 import yaml
-import json
 
 app = FastAPI()
 
 DB_PATH = os.getenv("DB_PATH", "/data/db/incident.db")
 CATEGORIES_FILE = os.getenv("CATEGORIES_FILE", "/app/incident_categories.yml")
+OLLAMA_API = os.getenv("OLLAMA_API", "http://ollama:11434")
 
 class IncidentRequest(BaseModel):
     category: str
     agent: str
     incident: str
 
-def save_incident(category, agent, incident, response_json):
-    """Save incident + structured response to SQLite"""
+# ---------------------------
+# DB Utility
+# ---------------------------
+def save_incident(category, agent, incident, response):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        """CREATE TABLE IF NOT EXISTS incidents (
-            id INTEGER PRIMARY KEY,
-            timestamp TEXT,
-            category TEXT,
-            agent TEXT,
-            incident TEXT,
-            response TEXT
-        )"""
+        "CREATE TABLE IF NOT EXISTS incidents (id INTEGER PRIMARY KEY, timestamp TEXT, category TEXT, agent TEXT, incident TEXT, response TEXT)"
     )
     cursor.execute(
         "INSERT INTO incidents (timestamp, category, agent, incident, response) VALUES (?, ?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(), category, agent, incident, json.dumps(response_json)),
+        (datetime.utcnow().isoformat(), category, agent, incident, response),
     )
     conn.commit()
     conn.close()
 
+def get_incidents(limit: int = 20):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS incidents (id INTEGER PRIMARY KEY, timestamp TEXT, category TEXT, agent TEXT, incident TEXT, response TEXT)"
+    )
+    cursor.execute("SELECT timestamp, category, agent, incident, response FROM incidents ORDER BY id DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    return [
+        {"timestamp": r[0], "category": r[1], "agent": r[2], "incident": r[3], "response": r[4]}
+        for r in rows
+    ]
+
+# ---------------------------
+# Category Utility
+# ---------------------------
 def load_category_prompt(category: str) -> str:
-    """Load category-specific prompt from YAML, if exists"""
     try:
         with open(CATEGORIES_FILE, "r") as f:
             data = yaml.safe_load(f)
@@ -48,34 +60,37 @@ def load_category_prompt(category: str) -> str:
     except Exception:
         return ""
 
-def get_agent_connect_command(agent: str) -> str:
-    """Return agent install command for given agent"""
-    mapping = {
-        "linux": "curl -sSL https://<YOUR_API>/agents/linux_agent/install.sh | bash",
-        "linux_agent": "curl -sSL https://<YOUR_API>/agents/linux_agent/install.sh | bash",
-        "aws": "curl -sSL https://<YOUR_API>/agents/aws_agent/install.sh | bash",
-        "aws_agent": "curl -sSL https://<YOUR_API>/agents/aws_agent/install.sh | bash",
-        "db": "curl -sSL https://<YOUR_API>/agents/db_agent/install.sh | bash",
-        "db_agent": "curl -sSL https://<YOUR_API>/agents/db_agent/install.sh | bash",
-    }
-    return mapping.get(agent.lower(), "No agent install script available. See docs.")
-
 @app.get("/categories")
 def get_categories():
-    """Return all available categories from YAML"""
     try:
         with open(CATEGORIES_FILE, "r") as f:
             data = yaml.safe_load(f)
         return {"categories": list(data.get("categories", {}).keys())}
     except Exception:
-        return {"categories": ["aws_outage", "kubernetes_crash", "database_down", "network_issue", "linux_issue"]}
+        return {"categories": []}
 
+# ---------------------------
+# Agent Utility
+# ---------------------------
+def get_agent_connect_command(agent: str) -> str:
+    mapping = {
+        "linux_agent": "curl -sSL https://<YOUR_API>/agents/linux_agent/install.sh | bash",
+        "aws_agent": "curl -sSL https://<YOUR_API>/agents/aws_agent/install.sh | bash",
+        "db_agent": "curl -sSL https://<YOUR_API>/agents/db_agent/install.sh | bash",
+    }
+    return mapping.get(agent.lower(), "No agent install script available. See docs.")
+
+@app.get("/agent/{agent}/connect")
+def agent_connect(agent: str):
+    return {"agent": agent, "command": get_agent_connect_command(agent)}
+
+# ---------------------------
+# Incident API
+# ---------------------------
 @app.post("/incident")
 def handle_incident(req: IncidentRequest):
-    # Load category-specific context
     category_context = load_category_prompt(req.category)
 
-    # Structured output prompt
     prompt = f"""
 You are an AI Incident Copilot.
 Category: {req.category}
@@ -86,85 +101,39 @@ Additional context:
 {category_context}
 
 Your task:
-Return ONLY valid JSON with the following keys:
-- investigation_steps: list of top 3 steps
-- commands: list of CLI commands
-- fixes: list of recommended fixes
-- severity: Low/Medium/High
-- recommended_action: short summary
-- notes: any other suggestions (optional)
-
-If you cannot determine exact fixes, still provide best suggestions.
+1. Give top 3 **investigation steps**.
+2. Provide **exact CLI commands** that should be run.
+3. Suggest **fixes or recommended actions** (ready to apply).
+4. Be concise and practical (use bullet points).
 """
 
-    # Call Ollama model
-    command = f'ollama run llama2:7b "{prompt}"'
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail=f"Ollama error: {result.stderr}")
-
-    raw_output = result.stdout.strip()
-
-    # Try parsing JSON
     try:
-        response_json = json.loads(raw_output)
-    except Exception:
-        # fallback to suggestion-only mode
-        response_json = {
-            "investigation_steps": [],
-            "commands": [],
-            "fixes": [],
-            "severity": "Unknown",
-            "recommended_action": raw_output,
-            "notes": "Suggestion-only mode (could not parse structured JSON)."
-        }
+        resp = requests.post(
+            f"{OLLAMA_API}/api/generate",
+            json={"model": "llama2:7b", "prompt": prompt, "stream": False},
+            timeout=300,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Ollama error: {resp.text}")
 
-    # Save incident
-    save_incident(req.category, req.agent, req.incident, response_json)
+        response_text = resp.json().get("response", "").strip()
 
-    return {
-        "response": response_json,
-        "agent_connect": get_agent_connect_command(req.agent)
-    }
+        save_incident(req.category, req.agent, req.incident, response_text)
+        return {"response": response_text}
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
+
+# ---------------------------
+# History API
+# ---------------------------
 @app.get("/incidents")
-def get_incidents(limit: int = 20) -> List[Dict]:
-    """Fetch incident history"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        """CREATE TABLE IF NOT EXISTS incidents (
-            id INTEGER PRIMARY KEY,
-            timestamp TEXT,
-            category TEXT,
-            agent TEXT,
-            incident TEXT,
-            response TEXT
-        )"""
-    )
-    cursor.execute(
-        "SELECT timestamp, category, agent, incident, response FROM incidents ORDER BY id DESC LIMIT ?",
-        (limit,),
-    )
-    rows = cursor.fetchall()
-    conn.close()
+def incidents(limit: int = 20) -> List[Dict]:
+    return get_incidents(limit)
 
-    history = []
-    for r in rows:
-        try:
-            response_json = json.loads(r[4])
-        except Exception:
-            response_json = {"recommended_action": r[4]}
-        history.append({
-            "timestamp": r[0],
-            "category": r[1],
-            "agent": r[2],
-            "incident": r[3],
-            "response": response_json
-        })
-    return history
-
+# ---------------------------
+# Healthcheck
+# ---------------------------
 @app.get("/health")
-def health_check():
+def health():
     return {"status": "ok", "db": "connected", "model": "llama2:7b"}

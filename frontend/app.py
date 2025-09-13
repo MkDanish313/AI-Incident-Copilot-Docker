@@ -9,7 +9,7 @@ st.title("🤖 AI Incident Copilot")
 # ---------------------------
 # Sidebar (Settings + Health)
 # ---------------------------
-st.sidebar.header("⚙️ Settings")
+st.sidebar.header("Settings")
 
 # Agent selection
 agent = st.sidebar.selectbox("Select Agent", ["linux_agent", "aws_agent", "db_agent"])
@@ -20,11 +20,21 @@ try:
     if cat_resp.status_code == 200:
         categories = cat_resp.json().get("categories", [])
     else:
-        categories = ["aws_outage", "kubernetes_crash", "database_down", "network_issue", "linux_issue"]
+        categories = []
 except Exception:
-    categories = ["aws_outage", "kubernetes_crash", "database_down", "network_issue", "linux_issue"]
+    categories = []
 
-category = st.sidebar.selectbox("Select Category", categories)
+category = st.sidebar.selectbox("Select Category", categories or ["default"])
+
+# Agent connect command
+try:
+    cmd_resp = requests.get(f"{API_URL}/agent/{agent}/connect", timeout=5)
+    if cmd_resp.status_code == 200:
+        st.sidebar.code(cmd_resp.json()["command"], language="bash")
+    else:
+        st.sidebar.warning("No connect command available")
+except Exception:
+    st.sidebar.warning("⚠️ Could not fetch agent connect command")
 
 # Health check
 st.sidebar.subheader("⚡ System Health")
@@ -45,10 +55,9 @@ tab1, tab2 = st.tabs(["💬 Assistant", "📜 History"])
 # ---------------------------
 with tab1:
     st.subheader("💬 Ask the AI Copilot")
-
     incident = st.text_area("Describe the incident:", height=120)
 
-    if st.button("🚀 Get AI Response"):
+    if st.button("Get AI Response"):
         if not incident.strip():
             st.warning("⚠️ Please enter an incident description.")
         else:
@@ -59,40 +68,11 @@ with tab1:
                         json={"agent": agent, "category": category, "incident": incident},
                         timeout=300,
                     )
-                    if resp.status_code != 200:
-                        st.error(f"Error: {resp.text}")
+                    if resp.status_code == 200:
+                        st.success("AI Response:")
+                        st.markdown(resp.json()["response"])
                     else:
-                        data = resp.json()
-                        response = data.get("response", {})
-                        connect_cmd = data.get("agent_connect", "")
-
-                        st.success("✅ AI Response")
-                        st.markdown("### 🕵️ Investigation Steps")
-                        for step in response.get("investigation_steps", []):
-                            st.markdown(f"- {step}")
-
-                        st.markdown("### 💻 Commands to Run")
-                        for cmd in response.get("commands", []):
-                            st.code(cmd, language="bash")
-
-                        st.markdown("### 🛠️ Fixes / Actions")
-                        for fix in response.get("fixes", []):
-                            st.markdown(f"- {fix}")
-
-                        st.markdown("### 📊 Severity")
-                        st.info(response.get("severity", "Unknown"))
-
-                        st.markdown("### 📌 Recommended Action")
-                        st.write(response.get("recommended_action", ""))
-
-                        if response.get("notes"):
-                            st.markdown("### 📝 Notes")
-                            st.write(response.get("notes"))
-
-                        if connect_cmd:
-                            st.markdown("### 🔗 Agent Connect Command")
-                            st.code(connect_cmd, language="bash")
-
+                        st.error(f"Error: {resp.text}")
                 except Exception as e:
                     st.error(f"Request failed: {e}")
 
@@ -112,24 +92,7 @@ with tab2:
                 for inc in incidents:
                     with st.expander(f"{inc['timestamp']} | {inc['category']} | {inc['agent']}"):
                         st.write(f"**Incident:** {inc['incident']}")
-                        response = inc["response"]
-
-                        st.markdown("**Investigation Steps:**")
-                        for step in response.get("investigation_steps", []):
-                            st.markdown(f"- {step}")
-
-                        st.markdown("**Commands:**")
-                        for cmd in response.get("commands", []):
-                            st.code(cmd, language="bash")
-
-                        st.markdown("**Fixes:**")
-                        for fix in response.get("fixes", []):
-                            st.markdown(f"- {fix}")
-
-                        st.markdown(f"**Severity:** {response.get('severity', 'Unknown')}")
-                        st.markdown(f"**Recommended Action:** {response.get('recommended_action', '')}")
-                        if response.get("notes"):
-                            st.markdown(f"**Notes:** {response.get('notes')}")
+                        st.write(f"**Response:** {inc['response']}")
         else:
             st.error(f"Failed to fetch history: {resp.text}")
     except Exception as e:
