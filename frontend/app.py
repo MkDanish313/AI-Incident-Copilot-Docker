@@ -10,26 +10,32 @@ st.title("🤖 AI Incident Copilot")
 # ---------------------------
 # Sidebar
 # ---------------------------
-st.sidebar.header("Settings")
+st.sidebar.header("⚙️ Settings")
+
+# Agent selection
 agent = st.sidebar.selectbox("Select Agent", ["linux_agent", "aws_agent", "db_agent"])
 
 # Fetch categories
 try:
     cat_resp = requests.get(f"{API_URL}/categories", timeout=5)
-    if cat_resp.status_code == 200:
-        categories = cat_resp.json().get("categories", [])
-    else:
-        categories = []
+    categories = cat_resp.json().get("categories", []) if cat_resp.status_code == 200 else []
 except Exception:
     categories = []
 
 category = st.sidebar.selectbox("Select Category", categories or ["default"])
 
 # Agent connect command
+st.sidebar.subheader("🔗 Agent Connect Command")
 try:
     cmd_resp = requests.get(f"{API_URL}/agent/{agent}/connect", timeout=5)
     if cmd_resp.status_code == 200:
-        st.sidebar.code(cmd_resp.json()["command"], language="bash")
+        command = cmd_resp.json()["command"]
+        st.sidebar.code(command, language="bash")
+        if st.sidebar.button("📋 Copy Command"):
+            st.session_state["copied"] = command
+            st.sidebar.success("✅ Command copied! Paste it on your server.")
+    else:
+        st.sidebar.warning("⚠️ Could not fetch agent connect command")
 except Exception:
     st.sidebar.warning("⚠️ Could not fetch agent connect command")
 
@@ -45,7 +51,7 @@ with tab1:
     st.subheader("💬 Ask the AI Copilot")
     incident = st.text_area("Describe the incident:", height=120)
 
-    if st.button("Get AI Response"):
+    if st.button("🚀 Get AI Response"):
         if not incident.strip():
             st.warning("⚠️ Please enter an incident description.")
         else:
@@ -63,25 +69,28 @@ with tab1:
                             response_box = st.empty()
                             full_text = ""
 
+                            # Live streaming display
                             for chunk in resp.iter_lines():
                                 if chunk:
                                     part = chunk.decode("utf-8")
                                     full_text += part
-                                    response_box.text_area("Raw stream", full_text, height=200)
+                                    response_box.markdown(f"```json\n{full_text}\n```")
 
-                            # Try parsing JSON at the end
+                            # Try structured parse
                             try:
                                 structured = json.loads(full_text)
+
                                 st.success("✅ Structured AI Response")
-                                st.subheader("🔍 Investigation Steps")
+
+                                st.markdown("### 🔍 Investigation Steps")
                                 for step in structured.get("investigation", []):
                                     st.write(f"- {step}")
 
-                                st.subheader("💻 Commands")
+                                st.markdown("### 💻 Commands")
                                 for cmd in structured.get("commands", []):
                                     st.code(cmd, language="bash")
 
-                                st.subheader("🛠 Fixes")
+                                st.markdown("### 🛠 Fixes")
                                 for fix in structured.get("fixes", []):
                                     st.write(f"- {fix}")
 
@@ -107,7 +116,20 @@ with tab2:
                 for inc in incidents:
                     with st.expander(f"{inc['timestamp']} | {inc['category']} | {inc['agent']}"):
                         st.write(f"**Incident:** {inc['incident']}")
-                        st.write(f"**Response:** {inc['response']}")
+                        try:
+                            structured = json.loads(inc["response"])
+                            st.markdown("**🔍 Investigation Steps**")
+                            for step in structured.get("investigation", []):
+                                st.write(f"- {step}")
+                            st.markdown("**💻 Commands**")
+                            for cmd in structured.get("commands", []):
+                                st.code(cmd, language="bash")
+                            st.markdown("**🛠 Fixes**")
+                            for fix in structured.get("fixes", []):
+                                st.write(f"- {fix}")
+                        except Exception:
+                            st.write("**Response:**")
+                            st.write(inc["response"])
         else:
             st.error(f"Failed to fetch history: {resp.text}")
     except Exception as e:
