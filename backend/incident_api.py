@@ -23,7 +23,7 @@ PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://localhost:8000")
 # ---------------------------
 if os.path.isdir("agents"):
     app.mount("/agents", StaticFiles(directory="agents"), name="agents")
-    
+
 class IncidentRequest(BaseModel):
     category: str
     agent: str
@@ -117,7 +117,7 @@ Be concise, practical, and realistic.
         try:
             with requests.post(
                 f"{OLLAMA_API}/api/generate",
-                json={"model": "llama2:7b", "prompt": prompt, "stream": True},
+                json={"model": "mistral:7b", "prompt": prompt, "stream": True},
                 stream=True,
                 timeout=600,
             ) as r:

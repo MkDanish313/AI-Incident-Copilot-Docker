@@ -74,7 +74,7 @@ with tab1:
                                 if chunk:
                                     part = chunk.decode("utf-8")
                                     full_text += part
-                                    response_box.markdown(f"```json\n{full_text}\n```")
+                                    response_box.markdown(full_text)
 
                             # Try structured parse
                             try:
