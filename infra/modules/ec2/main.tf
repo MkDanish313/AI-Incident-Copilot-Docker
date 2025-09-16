@@ -85,14 +85,20 @@ resource "aws_instance" "this" {
                 git clone ${var.repo_url} AI-Incident-Copilot-Docker
               fi
               cd AI-Incident-Copilot-Docker
+
+              # prepare data dirs
               mkdir -p data/db data/ollama
+
+              # create .env with PUBLIC_API_URL
+              echo "PUBLIC_API_URL=http://${self.public_ip}:8000" > .env
+
+              # bring up docker
               docker-compose up -d --build
               EOF
-  
-   # Root EBS volume ka size set karne ke liye
+
   root_block_device {
-    volume_size = 25      # Root volume size 25 GB
-    volume_type = "gp3"   # gp2 bhi use kar sakte ho
+    volume_size = 25
+    volume_type = "gp3"
   }
 
   tags = {
