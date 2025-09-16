@@ -36,7 +36,7 @@ services:
     container_name: incident-backend
     ports:
       - "8000:8000"
-     env_file:
+    env_file:
       - .env   # 🔥 Terraform se generate hone wali file
     environment:
       - OLLAMA_API=http://ollama:11434

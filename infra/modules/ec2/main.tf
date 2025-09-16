@@ -72,10 +72,10 @@ resource "aws_instance" "this" {
   associate_public_ip_address = true
 
   user_data = <<-EOF
-              #!/bin/bash
+             #!/bin/bash
               set -eux
               apt-get update -y
-              apt-get install -y docker.io docker-compose git
+              apt-get install -y docker.io docker-compose git curl
               systemctl enable docker
               systemctl start docker
 
@@ -89,8 +89,11 @@ resource "aws_instance" "this" {
               # prepare data dirs
               mkdir -p data/db data/ollama
 
+              # fetch EC2 public IP from metadata service
+              PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
               # create .env with PUBLIC_API_URL
-              echo "PUBLIC_API_URL=http://${self.public_ip}:8000" > .env
+              echo "PUBLIC_API_URL=http://$${PUBLIC_IP}:8000" > .env
 
               # bring up docker
               docker-compose up -d --build
