@@ -117,7 +117,7 @@ Be concise, practical, and realistic.
         try:
             with requests.post(
                 f"{OLLAMA_API}/api/generate",
-                json={"model": "mistral:7b", "prompt": prompt, "stream": True},
+                json={"model": "ai/mistral:7B-Q4_0", "prompt": prompt, "stream": True},
                 stream=True,
                 timeout=600,
             ) as r:
@@ -168,4 +168,4 @@ def incidents(limit: int = 20) -> List[Dict]:
 # ---------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "db": "connected", "model": "llama2:7b"}
+    return {"status": "ok", "db": "connected", "model": "ai/mistral:7B-Q4_0"}

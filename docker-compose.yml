@@ -25,8 +25,8 @@ services:
       sh -c "
       echo '⏳ Waiting for Ollama...';
       until curl -s http://ollama:11434/api/tags >/dev/null; do sleep 2; done;
-      echo '🚀 Pulling mistral:7b model...';
-      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"mistral:7b\"}';
+      echo '🚀 Pulling ai/mistral:7B-Q4_0...';
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"ai/mistral:7B-Q4_0\"}';
       echo '✅ Model pulled successfully';
       "
     restart: "no"
