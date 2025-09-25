@@ -82,7 +82,7 @@ def agent_connect(agent: str):
     return {"agent": agent, "command": get_agent_connect_command(agent)}
 
 # ---------------------------
-# Incident API (Strict JSON Response)
+# Incident API (Strict JSON Response with fallback)
 # ---------------------------
 @app.post("/incident")
 def handle_incident(req: IncidentRequest):
@@ -129,19 +129,20 @@ If unsure, still return generic investigation, commands, and fixes.
                             data = json.loads(line.decode("utf-8"))
                             chunk = data.get("response", "")
                             collected += chunk
+                            # stream raw text back
                             yield chunk
                         except Exception:
                             pass
         except Exception as e:
             yield json.dumps({"error": str(e)})
 
-        # Final parse attempt
+        # Final parse attempt at the end
         if collected.strip():
             try:
                 parsed = json.loads(collected)
                 save_incident(req.category, req.agent, req.incident, json.dumps(parsed))
             except Exception:
-                # Wrap raw text into JSON fallback
+                # Fallback: wrap raw output into JSON
                 fallback = {
                     "investigation": ["Review logs manually."],
                     "commands": ["echo 'No structured response'"],
