@@ -17,9 +17,8 @@ CATEGORIES_FILE = os.getenv("CATEGORIES_FILE", "/app/incident_categories.yml")
 OLLAMA_API = os.getenv("OLLAMA_API", "http://ollama:11434")
 PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://localhost:8000")
 
-
 # ---------------------------
-# Mount agents/ directory so scripts are served
+# Mount agents/
 # ---------------------------
 if os.path.isdir("agents"):
     app.mount("/agents", StaticFiles(directory="agents"), name="agents")
@@ -28,7 +27,6 @@ class IncidentRequest(BaseModel):
     category: str
     agent: str
     incident: str
-
 
 # ---------------------------
 # DB Utility
@@ -47,7 +45,6 @@ def save_incident(category, agent, incident, response):
     conn.commit()
     conn.close()
 
-
 # ---------------------------
 # Category Utility
 # ---------------------------
@@ -59,7 +56,6 @@ def load_category_prompt(category: str) -> str:
     except Exception:
         return ""
 
-
 @app.get("/categories")
 def get_categories():
     try:
@@ -68,7 +64,6 @@ def get_categories():
         return {"categories": list(data.get("categories", {}).keys())}
     except Exception:
         return {"categories": []}
-
 
 # ---------------------------
 # Agent Utility
@@ -87,13 +82,12 @@ def agent_connect(agent: str):
     return {"agent": agent, "command": get_agent_connect_command(agent)}
 
 # ---------------------------
-# Incident API (Streaming with Sections)
+# Incident API (Strict JSON Response)
 # ---------------------------
 @app.post("/incident")
 def handle_incident(req: IncidentRequest):
     category_context = load_category_prompt(req.category)
 
-    # Ask model for JSON structured output
     prompt = f"""
 You are an AI Incident Copilot.
 Category: {req.category}
@@ -104,16 +98,24 @@ Additional context:
 {category_context}
 
 Your task:
-Return a JSON with exactly these fields:
+Return ONLY valid JSON with exactly these fields:
 - investigation (list of top 3 steps)
 - commands (list of CLI commands)
 - fixes (list of recommended fixes)
 
-Be concise, practical, and realistic.
+Example format:
+{{
+  "investigation": ["step1", "step2"],
+  "commands": ["command1", "command2"],
+  "fixes": ["fix1", "fix2"]
+}}
+
+Do not add extra text outside JSON.
+If unsure, still return generic investigation, commands, and fixes.
 """
 
     def stream_response():
-        full_response = ""
+        collected = ""
         try:
             with requests.post(
                 f"{OLLAMA_API}/api/generate",
@@ -126,19 +128,28 @@ Be concise, practical, and realistic.
                         try:
                             data = json.loads(line.decode("utf-8"))
                             chunk = data.get("response", "")
-                            full_response += chunk
+                            collected += chunk
                             yield chunk
                         except Exception:
                             pass
         except Exception as e:
-            yield f"[Error contacting Ollama: {str(e)}]"
+            yield json.dumps({"error": str(e)})
 
-        # Save once complete
-        if full_response.strip():
-            save_incident(req.category, req.agent, req.incident, full_response.strip())
+        # Final parse attempt
+        if collected.strip():
+            try:
+                parsed = json.loads(collected)
+                save_incident(req.category, req.agent, req.incident, json.dumps(parsed))
+            except Exception:
+                # Wrap raw text into JSON fallback
+                fallback = {
+                    "investigation": ["Review logs manually."],
+                    "commands": ["echo 'No structured response'"],
+                    "fixes": [collected.strip()]
+                }
+                save_incident(req.category, req.agent, req.incident, json.dumps(fallback))
 
-    return StreamingResponse(stream_response(), media_type="text/plain")
-
+    return StreamingResponse(stream_response(), media_type="application/json")
 
 # ---------------------------
 # History API
@@ -161,7 +172,6 @@ def incidents(limit: int = 20) -> List[Dict]:
         {"timestamp": r[0], "category": r[1], "agent": r[2], "incident": r[3], "response": r[4]}
         for r in rows
     ]
-
 
 # ---------------------------
 # Healthcheck
